@@ -1,90 +1,184 @@
 import streamlit as st
 import hashlib
 from cryptography.fernet import Fernet
+import os
+import json
+import base64
 
-# Generate a key (this should be stored securely in production)
-KEY = Fernet.generate_key()
-cipher = Fernet(KEY)
 
-# In-memory data storage
-stored_data = {}  # {"user1_data": {"encrypted_text": "xyz", "passkey": "hashed"}}
-failed_attempts = 0
+# ----------------------------
+#  Modules for Pages
+# -----------------------------
 
-# Function to hash passkey
-def hash_passkey(passkey):
-    return hashlib.sha256(passkey.encode()).hexdigest()
+from Store_data import store_data
+from retrived_data import retrived_data
 
-# Function to encrypt data
-def encrypt_data(text, passkey):
+# -------------------------------
+# 🔐 Helper Functions
+# -------------------------------
+
+def hash_passkey(passkey, salt=None):
+    if not salt:
+        salt = os.urandom(16)
+        key = hashlib.pbkdf2_hmac(
+            'sha256', passkey.encode(), salt, 100000
+        )
+    return base64.b64encode(salt + key).decode()
+
+
+def encrypt_data(text):
     return cipher.encrypt(text.encode()).decode()
 
-# Function to decrypt data
-def decrypt_data(encrypted_text, passkey):
-    global failed_attempts
+
+def decrypt_data(encrypted_text, passkey, label):
     hashed_passkey = hash_passkey(passkey)
 
-    for key, value in stored_data.items():
-        if value["encrypted_text"] == encrypted_text and value["passkey"] == hashed_passkey:
-            failed_attempts = 0
+    if label in st.session_state.stored_data:
+        stored_entry = st.session_state.stored_data[label]
+
+        if stored_entry["passkey"] == hashed_passkey:
+            st.session_state.failed_attempts = 0
             return cipher.decrypt(encrypted_text.encode()).decode()
-    
-    failed_attempts += 1
+
+    st.session_state.failed_attempts += 1
     return None
 
-# Streamlit UI
-st.title("🔒 Secure Data Encryption System")
 
-# Navigation
-menu = ["Home", "Store Data", "Retrieve Data", "Login"]
-choice = st.sidebar.selectbox("Navigation", menu)
+def verify_passkey(stored_hash, provided_passkey):
+    decoded = base64.b64decode(stored_hash.encode())
+    salt = decoded[:16]
+    stored_key = decoded[16:]
+    new_key = hashlib.pbkdf2_hmac(
+        'sha256', provided_passkey.encode(), salt, 100000
+    )
+    return stored_key == new_key
 
-if choice == "Home":
-    st.subheader("🏠 Welcome to the Secure Data System")
-    st.write("Use this app to **securely store and retrieve data** using unique passkeys.")
 
-elif choice == "Store Data":
-    st.subheader("📂 Store Data Securely")
-    user_data = st.text_area("Enter Data:")
-    passkey = st.text_input("Enter Passkey:", type="password")
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        json.dump(st.session_state.stored_data, f)
 
-    if st.button("Encrypt & Save"):
-        if user_data and passkey:
-            hashed_passkey = hash_passkey(passkey)
-            encrypted_text = encrypt_data(user_data, passkey)
-            stored_data[encrypted_text] = {"encrypted_text": encrypted_text, "passkey": hashed_passkey}
-            st.success("✅ Data stored securely!")
-        else:
-            st.error("⚠️ Both fields are required!")
 
-elif choice == "Retrieve Data":
-    st.subheader("🔍 Retrieve Your Data")
-    encrypted_text = st.text_area("Enter Encrypted Data:")
-    passkey = st.text_input("Enter Passkey:", type="password")
+# -------------------------------
+# 📂 Data Persistence Setup
+# -------------------------------
 
-    if st.button("Decrypt"):
-        if encrypted_text and passkey:
-            decrypted_text = decrypt_data(encrypted_text, passkey)
+DATA_FILE = "store_data.json"
 
-            if decrypted_text:
-                st.success(f"✅ Decrypted Data: {decrypted_text}")
-            else:
-                st.error(f"❌ Incorrect passkey! Attempts remaining: {3 - failed_attempts}")
+# Create the JSON file if it doesn't exist
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w") as f:
+        json.dump({}, f)
 
-                if failed_attempts >= 3:
-                    st.warning("🔒 Too many failed attempts! Redirecting to Login Page.")
-                    st.rerun()
-        else:
-            st.error("⚠️ Both fields are required!")
+# Load existing data into session_state
+try:
+    with open(DATA_FILE, "r") as f:
+        loaded_data = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    loaded_data = {}
 
-elif choice == "Login":
-    st.subheader("🔑 Reauthorization Required")
-    login_pass = st.text_input("Enter Master Password:", type="password")
+
+# -------------------------------
+# 🧠 Initialize Session State
+# -------------------------------
+
+
+# Make sure session_state matches loaded data
+if "stored_data" not in st.session_state:
+    st.session_state.stored_data = loaded_data
+
+if "failed_attempts" not in st.session_state:
+    st.session_state.failed_attempts = 0
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "locked" not in st.session_state:
+    st.session_state.locked = False
+
+if "fernet_key" not in st.session_state:
+    st.session_state.fernet_key = Fernet.generate_key()
+
+if "lockout_time" not in st.session_state:
+    st.session_state.lockout_time = 0
+
+
+stored_data = st.session_state.stored_data
+failed_attempts = st.session_state.failed_attempts
+cipher = Fernet(st.session_state.fernet_key)
+
+
+# -------------------------------
+# 🧭 Sidebar Navigation
+# -------------------------------
+st.sidebar.title('Secure Vault')
+page = st.sidebar.radio(
+    "Navigate", ["🏠 Home", "📦 Store Data", "🔍 Retrieve Data", "🔑 Admin Login", '📋 Stored Labels'])
+
+# Show login status on all pages
+if st.session_state.logged_in:
+    st.sidebar.success("✅ Logged in as Admin")
+else:
+    st.sidebar.warning("🔒 Not Logged In")
+
+# -------------------------------
+# 🏠 Home Page
+# -------------------------------
+
+if page == "🏠 Home":
+    st.title("🔒 Secure Data Encryption System")
+    st.write("""
+    - Store & protect sensitive data
+    - Unlock secrets with passkey
+    - 3 wrong attempts = LOCK
+    - Login any time to unlock 🔓
+    """)
+
+# -------------------------------
+# 📦 Store Data
+# -------------------------------
+
+elif page == "📦 Store Data":
+   store_data()
+
+
+# -------------------------------
+# 🔍 Retrieve Data
+# -------------------------------
+
+elif page == "🔍 Retrieve Data":
+    retrived_data()
+
+
+# -------------------------------
+# 📋 Stored Labels
+# -------------------------------
+elif page == '📋 Stored Labels':
+
+    st.subheader("📋 Stored Labels")
+    if st.session_state.stored_data:
+        for label in st.session_state.stored_data.keys():
+            st.write(f"- {label}")
+    else:
+        st.write("No secrets stored yet.")
+
+# -------------------------------
+# 🔑 Login Page (Now in Sidebar)
+# -------------------------------
+
+elif page == "🔑 Admin Login":
+    st.title("🔑 Admin Login")
+    login_user = st.text_input("Enter user name : ")
+    login_pw = st.text_input("Enter admin password:", type="password")
 
     if st.button("Login"):
-        if login_pass == "admin123":  # Hardcoded for demo, replace with proper auth
-            # global failed_attempts
-            failed_attempts = 0
-            st.success("✅ Reauthorized successfully! Redirecting to Retrieve Data...")
-            st.rerun()
+        if login_pw == "admin123":
+            st.session_state.logged_in = True
+            st.session_state.failed_attempts = 0
+            st.session_state.lockout_time = 0
+
+            st.success(f"{login_user}, You're in, boss! 🔓")
+            st.success(
+                "✅ Reauthorized successfully! Redirecting to Retrieve Data...")
         else:
-            st.error("❌ Incorrect password!")
+            st.error("Wrong password")
