@@ -1,5 +1,5 @@
 import streamlit as st
-from main import encrypt_data , hash_passkey , save_data
+from utils import encrypt_data , hash_passkey , save_data
 
 def store_data():
 
@@ -21,6 +21,7 @@ def store_data():
             st.code(encrypted)
         else:
             st.warning("All fields required")
+            
             
 if __name__ == "__main__":
     store_data()

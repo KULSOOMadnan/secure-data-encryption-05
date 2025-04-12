@@ -1,8 +1,7 @@
 import streamlit as st 
 from cryptography.fernet import Fernet
 import time
-
-from main import stored_data , verify_passkey
+from utils import stored_data , verify_passkey
 
 def retrived_data():
     st.title("🔍 Decrypt Stored Data")
