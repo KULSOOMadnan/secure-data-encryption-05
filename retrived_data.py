@@ -1,7 +1,7 @@
 import streamlit as st
 import time
 from cryptography.fernet import Fernet
-from utils import load_data, verify_passkey
+from utils import load_data, verify_passkey , decrypt_data
 
 
 def retrived_data():
@@ -13,11 +13,12 @@ def retrived_data():
         "lockout_time": 0,
         "logged_in": False,
         "username": "",
-        "fernet_key": None,
         "page": "Decrypt"
     }.items():
         if key not in st.session_state:
             st.session_state[key] = value
+        
+
 
     current_time = time.time()
 
@@ -52,15 +53,9 @@ def retrived_data():
                 stored_hash = user_data[label]["passkey"]
 
                 if verify_passkey(stored_hash, passkey):
-                    try:
-                        cipher = Fernet(st.session_state.fernet_key)
-                        decrypted_text = cipher.decrypt(
-                            encrypted_text.encode()).decode()
-                        st.success("Secret decrypted ✅")
-                        st.code(decrypted_text)
-                        st.session_state.failed_attempts = 0  # reset on success
-                    except Exception:
-                        st.error("Decryption failed — invalid token.")
+                    decrypted_text = decrypt_data(encrypted_text, passkey, stored_hash)
+                    st.success("Secret decrypted ✅")
+                    st.code(decrypted_text)
                 else:
                     st.session_state.failed_attempts += 1
                     st.error("Wrong passkey ❌")
@@ -75,8 +70,6 @@ def retrived_data():
                         st.session_state.page = '👤 Login'
                         st.rerun()
 
-                            # st.session_state.page = '👤 Login'
-                            # st.rerun()
             else:
                 st.error("Label not found.")
         else:

@@ -25,6 +25,15 @@ if "page" not in st.session_state:
 if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
 
+if "stored_data" not in st.session_state:
+    st.session_state.stored_data = load_data()
+
+if "fernet_key" not in st.session_state:
+    st.session_state.fernet_key = Fernet.generate_key()
+
+if "failed_attempts" not in st.session_state:
+    st.session_state.failed_attempts = 0
+
 def logout():
     if os.path.exists("session.json"):
         os.remove("session.json")
