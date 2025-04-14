@@ -1,30 +1,55 @@
-import streamlit as st 
-from cryptography.fernet import Fernet
+import streamlit as st
 import time
-from utils import stored_data , verify_passkey
+from cryptography.fernet import Fernet
+from utils import load_data, verify_passkey
+
 
 def retrived_data():
     st.title("🔍 Decrypt Stored Data")
 
+    # ✅ Always initialize session state keys
+    for key, value in {
+        "failed_attempts": 0,
+        "lockout_time": 0,
+        "logged_in": False,
+        "username": "",
+        "fernet_key": None,
+        "page": "Decrypt"
+    }.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
     current_time = time.time()
 
-    # Check for lockout
-    if current_time < st.session_state.lockout_time and not st.session_state.logged_in:
+    # 🔒 If not logged in, force to login page
+    if not st.session_state.username:
+        st.error("You need to login first.")
+        if st.button("Go to Login"):
+            st.session_state.page = '👤 Login'
+            st.rerun()
+        st.stop()
+
+    # 🔒 Lockout logic
+    if current_time < st.session_state.lockout_time:
         remaining = int(st.session_state.lockout_time - current_time)
         minutes, seconds = divmod(remaining, 60)
         st.error(
             f"🔒 Too many failed attempts. Locked for {minutes} min {seconds} sec.")
-        st.warning("⚠️ Redirect to Admin Login required to unlock.")
+        st.warning("Wait before trying again.")
         st.stop()
 
+    # ✅ Input fields for decryption
     label = st.text_input("Enter label")
     passkey = st.text_input("Enter passkey", type="password")
 
     if st.button("Decrypt"):
         if label and passkey:
-            if label in stored_data:
-                encrypted_text = stored_data[label]["encrypted_text"]
-                stored_hash = stored_data[label]["passkey"]
+            all_data = load_data()
+            user_data = all_data.get(st.session_state.username, {})
+
+            if label in user_data:
+                encrypted_text = user_data[label]["encrypted_text"]
+                stored_hash = user_data[label]["passkey"]
 
                 if verify_passkey(stored_hash, passkey):
                     try:
@@ -33,11 +58,9 @@ def retrived_data():
                             encrypted_text.encode()).decode()
                         st.success("Secret decrypted ✅")
                         st.code(decrypted_text)
-                        st.session_state.failed_attempts = 0
-                    except Exception as e:
+                        st.session_state.failed_attempts = 0  # reset on success
+                    except Exception:
                         st.error("Decryption failed — invalid token.")
-                        st.warning(
-                            "Possible data/key mismatch. Contact admin.")
                 else:
                     st.session_state.failed_attempts += 1
                     st.error("Wrong passkey ❌")
@@ -46,11 +69,19 @@ def retrived_data():
 
                     if st.session_state.failed_attempts >= 3:
                         st.session_state.lockout_time = time.time() + 180
-                        st.error("🔒 Locked out due to too many wrong attempts!")
+                        st.error("🔒 Too many wrong attempts. Redirecting you to login page in 3 seconds...")
+                        with st.spinner("Redirecting..."):
+                            time.sleep(3)
+                        st.session_state.page = '👤 Login'
+                        st.rerun()
+
+                            # st.session_state.page = '👤 Login'
+                            # st.rerun()
             else:
-                st.error("Label not found")
+                st.error("Label not found.")
         else:
-            st.warning("Enter both fields")
-            
+            st.warning("Enter both fields.")
+
+
 if __name__ == "__main__":
     retrived_data()

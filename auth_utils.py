@@ -1,36 +1,52 @@
-from cryptography.fernet import Fernet
+import hashlib
 import json
 import os
 
-key = Fernet.generate_key()
-fernet = Fernet(key)
+USERS_FILE = "users.json"
 
-def load_data():
-    if not os.path.exists("data.json"):
-        with open("data.json", "w") as f:
-            json.dump({"users": {}}, f)
-    with open("data.json", "r") as f:
-        return json.load(f)
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-def save_data(data):
-    with open("data.json", "w") as f:
-        json.dump(data, f, indent=4)
+def load_users():
+    # Check if file exists — if not, create it with empty JSON object
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w") as f:
+            json.dump({}, f)
+        return {}
 
-def signup(username, password):
-    data = load_data()
-    if username in data["users"]:
-        return False, "User already exists."
-    encrypted_password = fernet.encrypt(password.encode()).decode()
-    data["users"][username] = {"password": encrypted_password, "data": []}
-    save_data(data)
-    return True, "Signup successful."
+    # If file exists but is empty or invalid JSON — handle gracefully
+    try:
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        # Reinitialize file with empty JSON if corrupted
+        with open(USERS_FILE, "w") as f:
+            json.dump({}, f)
+        return {}
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
+
+def signup(username, password, confirm_pass):
+    users = load_users()
+    if username in users:
+        return False, "Username already exists"
+    if password != confirm_pass:
+        return False, "Confirm Password doesn't match"
+    users[username] = hash_password(confirm_pass)
+    save_users(users)
+    return True, "Signup successful"
 
 def login(username, password):
-    data = load_data()
-    if username not in data["users"]:
-        return False, "User not found."
-    stored_password = data["users"][username]["password"]
-    if fernet.decrypt(stored_password.encode()).decode() == password:
-        return True, "Login successful."
-    else:
-        return False, "Incorrect password."
+    users = load_users()
+    if username in users and users[username] == hash_password(password):
+        return True, "Login successful"
+    return False, "Invalid credentials"
+
+def save_session(username):
+    session_data = {"username": username, "logged_in": True}
+    with open("session.json", "w") as f:
+        json.dump(session_data, f)
+
+

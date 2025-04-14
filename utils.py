@@ -46,28 +46,31 @@ def verify_passkey(stored_hash, provided_passkey):
     return stored_key == new_key
 
 
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump(st.session_state.stored_data, f)
-
-
 # -------------------------------
 # 📂 Data Persistence Setup
 # -------------------------------
 
 DATA_FILE = "store_data.json"
 
-# Create the JSON file if it doesn't exist
-if not os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "w") as f:
-        json.dump({}, f)
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "w") as f:
+            json.dump({}, f)
+        return {}
 
-# Load existing data into session_state
-try:
-    with open(DATA_FILE, "r") as f:
-        loaded_data = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-    loaded_data = {}
+    try:
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        # If file's corrupted or missing — reset it
+        with open(DATA_FILE, "w") as f:
+            json.dump({}, f)
+        return {}
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
 
 
 # -------------------------------
@@ -77,24 +80,12 @@ except (json.JSONDecodeError, FileNotFoundError):
 
 # Make sure session_state matches loaded data
 if "stored_data" not in st.session_state:
-    st.session_state.stored_data = loaded_data
-
-if "failed_attempts" not in st.session_state:
-    st.session_state.failed_attempts = 0
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if "locked" not in st.session_state:
-    st.session_state.locked = False
+    st.session_state.stored_data = load_data()
 
 if "fernet_key" not in st.session_state:
     st.session_state.fernet_key = Fernet.generate_key()
 
-if "lockout_time" not in st.session_state:
-    st.session_state.lockout_time = 0
 
 
 stored_data = st.session_state.stored_data
-failed_attempts = st.session_state.failed_attempts
 cipher = Fernet(st.session_state.fernet_key)
